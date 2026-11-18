@@ -634,3 +634,6 @@ html[data-theme="light"] .badge { border-color: #d8d0c0; color: var(--faint); }
 .dl-hint { font-size: 10.5px; color: var(--faint); margin-top: 4px; line-height: 1.4; }
 
 .card-head #purge { margin-left: 10px; }
+
+/* source-language live text reads left-to-right */
+.subbox.ltr { direction: ltr; text-align: left; }

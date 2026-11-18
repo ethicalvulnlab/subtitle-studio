@@ -325,7 +325,7 @@ def cues_from_words(words, *, max_dur: float = 6.0, max_chars: int = 84) -> list
 def transcribe(video: str, *, size: str = "small", language: str | None = None,
                threads: int = 4, models_dir: str = "models",
                beam_size: int = 5, max_chars: int = 42, on_progress=None,
-               word_timestamps: bool = True, should_stop=None):
+               word_timestamps: bool = True, should_stop=None, on_cue=None):
     """Return (cues, info). Cues are sentence-level — display splitting happens
     after translation so the translator always sees complete sentences."""
     model = get_whisper(size, threads, models_dir)
@@ -349,6 +349,8 @@ def transcribe(video: str, *, size: str = "small", language: str | None = None,
         text = " ".join(seg.text.split())
         if text:
             seg_cues.append(Cue(seg.start, seg.end, text))
+            if on_cue:
+                on_cue(seg_cues[-1])
         if on_progress:
             on_progress(min(seg.end / info.duration, 0.999) if info.duration else 0.0)
 
@@ -477,7 +479,8 @@ def _load_marian(src: str, tgt: str):
 
 
 def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 32,
-              beams: int = 2, on_progress=None, should_stop=None) -> list[str]:
+              beams: int = 2, on_progress=None, should_stop=None,
+              on_batch=None) -> list[str]:
     import torch
 
     tok, mdl = _load_marian(src, tgt)
@@ -498,6 +501,8 @@ def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 32,
             decoded = tok.batch_decode(gen, skip_special_tokens=True)
             for j, i in enumerate(idx):
                 out[i] = decoded[j]
+            if on_batch:
+                on_batch(list(idx), list(decoded))
             if on_progress:
                 on_progress(min(1.0, (start + len(idx)) / max(1, len(texts))))
     return out
@@ -627,7 +632,7 @@ def restore_text(text: str, mapping: list[tuple[str, str]]) -> str:
 
 def translate(texts: list[str], src: str, dst: str = "ar", log=None,
               on_progress=None, glossary=None, keep_foreign: bool = False,
-              should_stop=None) -> list[str]:
+              should_stop=None, on_batch=None) -> list[str]:
     """Translate a list of strings, chaining through English when needed.
 
     Terms in `glossary` (and French words when `keep_foreign`) are protected
@@ -647,12 +652,14 @@ def translate(texts: list[str], src: str, dst: str = "ar", log=None,
     if (src, dst) in MARIAN:
         if log:
             log(f"translating {len(texts)} segments {src}->{dst}")
-        res = _mt_batch(protected, src, dst, on_progress=on_progress, should_stop=should_stop)
+        res = _mt_batch(protected, src, dst, on_progress=on_progress,
+                        should_stop=should_stop, on_batch=on_batch)
     elif (src, "en") in MARIAN and ("en", dst) in MARIAN:
         if log:
             log(f"translating {len(texts)} segments {src}->en->{dst}")
         mid = _mt_batch(protected, src, "en", should_stop=should_stop)
-        res = _mt_batch(mid, "en", dst, on_progress=on_progress, should_stop=should_stop)
+        res = _mt_batch(mid, "en", dst, on_progress=on_progress,
+                        should_stop=should_stop, on_batch=on_batch)
     else:
         raise RuntimeError(f"no translation route for {src}->{dst}")
 

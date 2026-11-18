@@ -191,6 +191,12 @@ def create_job(body: JobIn):
     return {"job": job}
 
 
+@app.get("/api/live")
+def live(path: str | None = None):
+    """Transcript of the file being processed right now."""
+    return worker.live_view(path)
+
+
 @app.get("/api/jobs")
 def list_jobs():
     with store.lock:

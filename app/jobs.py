@@ -82,6 +82,47 @@ class Worker:
         self._current: str | None = None
         self._started = 0.0
         self._audio_done = 0.0
+        # live transcript of whatever is being processed right now
+        self._live: dict = {}
+        self._live_lock = threading.Lock()
+
+    # -- live transcript ---------------------------------------------------- #
+    def live_view(self, path: str | None = None) -> dict:
+        with self._live_lock:
+            if path:
+                data = self._live.get(path)
+            else:
+                data = next(iter(self._live.values()), None)
+            if not data:
+                return {"phase": "idle", "lines": []}
+            ar = data.get("ar") or {}
+            if ar:
+                lines = [{"i": i, "text": ar[i]} for i in sorted(ar)]
+                return {"phase": "translate", "name": data["name"], "lines": lines, "lang": "ar"}
+            return {"phase": "asr", "name": data["name"],
+                    "lines": [{"i": k, "text": v} for k, v in enumerate(data["src"][-200:])],
+                    "lang": data.get("lang") or "?"}
+
+    def _live_reset(self, path: str, name: str):
+        with self._live_lock:
+            self._live[path] = {"name": name, "src": [], "ar": {}, "lang": None}
+
+    def _live_src(self, path: str, text: str):
+        with self._live_lock:
+            d = self._live.get(path)
+            if d is not None:
+                d["src"].append(text)
+
+    def _live_ar(self, path: str, idxs, texts):
+        with self._live_lock:
+            d = self._live.get(path)
+            if d is not None:
+                for i, t in zip(idxs, texts):
+                    d["ar"][i] = t
+
+    def _live_clear(self, path: str):
+        with self._live_lock:
+            self._live.pop(path, None)
 
     # -- lifecycle ---------------------------------------------------------- #
     def ensure_running(self):
@@ -159,6 +200,7 @@ class Worker:
                     item["error"] = f"{type(exc).__name__}: {exc}"
                     item["trace"] = traceback.format_exc(limit=4)
                 self.store.save()
+            self._live_clear(item["path"])
             with self.store.lock:
                 job["eta"] = self._eta(job)
             self.store.save()
@@ -207,6 +249,7 @@ class Worker:
             if int(frac * 100) % 10 == 0:
                 self.store.save()
 
+        self._live_reset(video, item["name"])
         cues, info = core.transcribe(
             video,
             size=opts.get("model", "small"),
@@ -217,6 +260,7 @@ class Worker:
             max_chars=opts.get("max_chars", 42),
             on_progress=on_progress,
             should_stop=stopped,
+            on_cue=lambda c: self._live_src(video, c.text),
         )
         src = (info.language or lang or "en").lower()
         max_chars = opts.get("max_chars", 42)
@@ -232,6 +276,7 @@ class Worker:
                 glossary=core.parse_glossary(opts.get("glossary")),
                 keep_foreign=bool(opts.get("keep_foreign")),
                 should_stop=stopped,
+                on_batch=lambda idxs, texts: self._live_ar(video, idxs, texts),
             )
             for c, t in zip(cues, ar):
                 final.extend(core.split_pair(c.start, c.end, t, c.text,
