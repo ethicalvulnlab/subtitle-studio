@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitle Studio — Arabic subtitles</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6">
+        <rect x="2.5" y="5" width="19" height="14" rx="3"/>
+        <path d="M6 15h5M13 15h5M6 11h3"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Subtitle <em>Studio</em></h1>
+      <p>Arabic subtitles · on your machine</p>
+    </div>
+  </div>
+  <div class="chips" id="chips"></div>
+  <button id="theme" class="btn sm ghost" title="Switch dark / light theme">☀</button>
+</header>
+
+<main>
+  <!-- toolbar spanning both panes -->
+  <div class="toolbar">
+    <div class="input-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+      </svg>
+      <input type="text" id="path" placeholder="/path/to/videos or USB mount" value="examples">
+    </div>
+    <button id="scan" class="btn primary">Scan</button>
+    <button id="pick" class="btn ghost" title="Add this folder to the allowed roots">Allow</button>
+    <button id="examples" class="btn ghost">Examples</button>
+    <button id="browse" class="btn ghost">Browse…</button>
+    <span class="stats" id="stats">—</span>
+  </div>
+
+  <!-- left: library + preview -->
+  <div class="col">
+  <section class="card lib">
+    <div class="card-head">
+      <h2>Library</h2>
+      <div class="filters">
+        <input type="text" id="search" placeholder="Filter…">
+        <label class="switch"><input type="checkbox" id="hideDone"> subtitled</label>
+        <label class="switch"><input type="checkbox" id="noAudio"> audio</label>
+      </div>
+    </div>
+
+    <div class="quick">
+      <button id="all" class="btn sm ghost">Select all</button>
+      <button id="none" class="btn sm ghost">Clear</button>
+      <button id="selNosub" class="btn sm ghost">Missing Arabic</button>
+    </div>
+
+    <div class="list" id="list">
+      <div class="empty"><strong>Nothing loaded</strong>Scan a folder to see your videos.</div>
+    </div>
+  </section>
+
+
+  </div>
+
+  <!-- right: full-height queue -->
+    <section class="card queue-card">
+      <div class="card-head">
+        <h2>Queue</h2>
+        <span class="sub" id="qsum"></span>
+      </div>
+      <div id="queue" class="scroll">
+        <div class="empty"><strong>No jobs yet</strong>Select videos, then press start.</div>
+      </div>
+    </section>
+</main>
+
+<!-- persistent action bar -->
+<div class="actionbar">
+  <span class="selinfo" id="selInfo">nothing selected</span>
+  <button id="pause" class="btn sm ghost">Pause</button>
+  <button id="resume" class="btn sm ghost">Resume</button>
+  <button id="cancel" class="btn sm danger">Cancel</button>
+  <button id="openSettings" class="btn">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>
+    </svg>
+    Options
+  </button>
+  <button id="start" class="btn primary">Start batch</button>
+</div>
+
+<!-- ------------------------------------------------ settings drawer -->
+<aside class="drawer" id="sdrawer">
+  <header>
+    <h2>Options</h2>
+    <button id="sClose" class="btn ghost">Close</button>
+  </header>
+  <div class="drawer-body">
+    <div class="group">
+      <h3>Recognition</h3>
+      <div class="grid2">
+        <div class="field">
+          <label>Whisper model</label>
+          <select id="model">
+            <option value="tiny">tiny · 75 MB</option>
+            <option value="base">base · 145 MB</option>
+            <option value="small" selected>small · 484 MB</option>
+            <option value="medium">medium · 1.5 GB</option>
+            <option value="large-v3">large-v3 · 3.1 GB</option>
+          </select>
+          <div class="dl-row">
+            <span id="dlText">checking…</span>
+            <button id="dlBtn" class="btn sm ghost hidden">Download</button>
+          </div>
+          <div class="dl-hint" id="dlHint"></div>
+        </div>
+        <div class="field">
+          <label>Source language</label>
+          <select id="srclang">
+            <option value="auto">auto-detect</option>
+            <option value="en">English</option>
+            <option value="fr">French</option>
+            <option value="ar">Arabic — no translation</option>
+            <option value="es">Spanish</option>
+            <option value="de">German</option>
+            <option value="tr">Turkish</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>CPU threads</label>
+          <input type="number" id="threads" value="4" min="1" max="16">
+        </div>
+        <div class="field">
+          <label>Format</label>
+          <select id="format">
+            <option value="srt" selected>.srt — best for TV</option>
+            <option value="ass">.ass — styled</option>
+            <option value="both">both</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Speech hint — what the lesson talks about</label>
+          <input type="text" id="prompt" placeholder="French alphabet lesson: bonjour, merci, hibou, zèbre">
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>Translation</h3>
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" id="translate" checked> Translate to Arabic</label>
+        <label class="switch"><input type="checkbox" id="bilingual"> Bilingual — original above Arabic</label>
+      </div>
+
+    </div>
+
+    <div class="group">
+      <h3>Output</h3>
+      <div class="grid2">
+        <div class="field">
+          <label>File name</label>
+          <select id="naming">
+            <option value="lang_suffix" selected>movie.ar.srt</option>
+            <option value="plain">movie.srt</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Placement</label>
+          <select id="outputmode">
+            <option value="beside" selected>next to the video</option>
+            <option value="folder">output/ folder</option>
+          </select>
+        </div>
+      </div>
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" id="bom" checked> UTF-8 BOM — for TVs</label>
+        <label class="switch"><input type="checkbox" id="rtl"> RTL marks</label>
+        <label class="switch" title="Uncheck to regenerate and overwrite existing subtitles">
+          <input type="checkbox" id="skip" checked> Skip existing (uncheck to redo)</label>
+        <label class="switch"><input type="checkbox" id="burn"> Burn into video</label>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ------------------------------------------------ subtitle editor -->
+<aside class="drawer" id="drawer">
+  <header>
+    <h2 id="edTitle">Edit subtitle</h2>
+    <label class="offset">shift
+      <input type="number" id="edShift" step="0.1" value="0">s
+      <button id="edShiftApply" class="btn sm ghost">apply</button>
+    </label>
+    <button id="edReplay" class="btn sm ghost">Replay cue</button>
+    <button id="edSave" class="btn primary">Save</button>
+    <button id="edClose" class="btn ghost">Close</button>
+  </header>
+  <div class="ed-stage">
+    <video id="edVideo" controls preload="metadata"></video>
+    <div class="ed-now" id="edNow">Click a line to hear it, then fix the text.</div>
+  </div>
+  <div class="cues" id="cues"></div>
+</aside>
+
+<!-- ------------------------------------------------ folder picker -->
+<div class="modal" id="browseModal">
+  <div class="modal-card browse-card">
+    <header>
+      <h2>Select a folder or videos</h2>
+      <button id="bClose" class="btn ghost">Close</button>
+    </header>
+    <div class="browse-bar">
+      <button id="bUp" class="btn sm ghost" title="Parent folder">↑</button>
+      <input type="text" id="bPath" spellcheck="false">
+      <button id="bGo" class="btn sm">Go</button>
+    </div>
+    <div class="browse-list" id="bList"></div>
+    <footer class="browse-foot">
+      <span id="bInfo"></span>
+      <button id="bUseFolder" class="btn">Use this folder</button>
+      <button id="bAddVideos" class="btn primary">Add selected videos</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ------------------------------------------------ preview modal -->
+<div class="modal" id="previewModal">
+  <div class="modal-card" role="dialog" aria-label="Subtitle preview">
+    <header>
+      <h2 id="pname">Preview</h2>
+      <button id="pClose" class="btn ghost">Close</button>
+    </header>
+    <video id="player" controls playsinline></video>
+    <div class="subbox" id="subtext">Select a finished file to see its Arabic subtitle.</div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="toasts" id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

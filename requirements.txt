@@ -1,0 +1,10 @@
+faster-whisper==1.2.1
+av<16
+transformers
+sentencepiece
+sacremoses
+fastapi
+uvicorn
+python-multipart
+# torch is installed from the CPU wheel index:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch

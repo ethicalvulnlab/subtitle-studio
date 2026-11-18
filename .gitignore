@@ -1,0 +1,18 @@
+# environment
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# downloaded models and runtime state
+models/
+state/
+output/
+
+# sample media (copyrighted — not distributed)
+examples/*.mp4
+examples/*.mkv
+examples/*.avi
+examples/*.webm
+examples/*.srt
+examples/*.ass
