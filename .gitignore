@@ -16,3 +16,6 @@ examples/*.avi
 examples/*.webm
 examples/*.srt
 examples/*.ass
+
+# local dev helper
+.cdp.py
