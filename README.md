@@ -10,19 +10,72 @@ Runs on CPU. No API keys, no cloud, no account.
 
 ---
 
-## Quick start
+## Install
+
+Requirements: **Python 3.10+** and **ffmpeg** on your PATH.
+
+> Windows: run this inside **WSL2** (Ubuntu) or Git Bash; the scripts are bash.
 
 ```bash
-./run.sh                      # opens http://127.0.0.1:8099
+git clone https://github.com/ethicalvulnlab/subtitle-studio.git
+cd subtitle-studio
+./setup.sh          # creates .venv and installs everything (once)
+./run.sh            # starts the app on http://127.0.0.1:8099
 ```
 
-Then in the browser:
+`./run.sh` runs `setup.sh` automatically if `.venv` is missing, so a fresh
+clone only needs `./run.sh`.
+
+## Models — where they live
+
+**You do not download or place model files by hand.** On first use the app
+fetches the ones it needs and keeps them here:
+
+```
+subtitle-studio/
+├── models/                       ← created automatically
+│   ├── models--Systran--faster-whisper-small/   speech recognition
+│   └── hf/hub/models--Helsinki-NLP--opus-mt-en-ar/   translation
+├── state/                        ← job history + checkpoints
+└── output/                       ← subtitles when the video folder is read-only
+```
+
+| What | When | Size |
+|---|---|---|
+| Whisper `tiny` / `base` / `small` | first job using that size | 75 MB / 145 MB / 484 MB |
+| Whisper `medium` / `large-v3` | only if you pick them | 1.5 GB / 3.1 GB |
+| Marian en→ar | first translation | ~300 MB |
+| Marian fr→en | first French video | ~290 MB |
+| NLLB-200 600M | only if you pick that engine | 2.4 GB |
+
+Nothing is committed to git — the folder is in `.gitignore`.
+
+**Pre-download a model** (before a big batch, or to work offline later):
+Options → **Whisper model** → pick it → **Download**, and watch the percentage.
+
+**Work fully offline** once downloaded — the app loads from disk first and
+never needs the network again for those models.
+
+**Need them on another disk?** Move the folder and leave a symlink:
+
+```bash
+mv models /mnt/bigdisk/subtitle-models
+ln -s /mnt/bigdisk/subtitle-models models
+```
+
+**Docker:** mount a volume at `/data`; models are stored in `/data/models` and
+survive container rebuilds.
+
+```bash
+docker run --rm -p 8099:8099 -v "$PWD/data:/data" -v "$PWD/media:/media" subtitle-studio
+```
+
+## First run in the browser
 
 1. **Browse…** → pick a folder, or tick individual videos → **Add selected videos**
-   (or type a path and press **Scan**)
 2. Tick videos (or **Select files missing Arabic**)
-3. Pick model / format / options → **Start batch**
-4. Watch the queue; click a finished file to preview the subtitle
+3. Pick model / options → **Start batch**
+4. Watch the queue; **Preview** to watch, **Edit subtitle** to fix, **Check** to QC
 
 Headless equivalent:
 

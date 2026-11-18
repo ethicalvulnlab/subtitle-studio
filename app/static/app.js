@@ -775,10 +775,17 @@ $("#bAddVideos").onclick = addSelectedVideos;
 
 /* ---------------------------------------------------------------- model downloads */
 let MODELS = { cached: [], expected_mb: {}, download: {} };
+let FIRST_MODEL_CHECK = true;
 
 async function refreshModels() {
   try {
     MODELS = await api("/api/models");
+    if (FIRST_MODEL_CHECK) {
+      FIRST_MODEL_CHECK = false;
+      if (!(MODELS.cached || []).length) {
+        toast("First run: models download automatically into models/ (~500 MB)", "ok");
+      }
+    }
     const sel = $("#model").value;
     const dl = MODELS.download || {};
     const text = $("#dlText");

@@ -2,6 +2,10 @@
 # Start the Arabic subtitle builder UI.
 set -e
 cd "$(dirname "$0")"
+if [ ! -d .venv ]; then
+  echo "No .venv found — running setup.sh once..."
+  ./setup.sh
+fi
 . .venv/bin/activate
 export HF_HOME="$PWD/models/hf"
 export HF_HUB_DISABLE_XET=1
