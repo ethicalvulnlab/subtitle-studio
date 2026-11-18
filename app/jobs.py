@@ -30,7 +30,6 @@ DEFAULTS = {
     "font_size": 22,
     "glossary": [],
     "keep_foreign": False,
-    "prompt": "",
 }
 
 
@@ -208,14 +207,6 @@ class Worker:
             if int(frac * 100) % 10 == 0:
                 self.store.save()
 
-        # Bias the recogniser towards the lesson vocabulary: the glossary the
-        # user wrote for translation doubles as an ASR hint.
-        glossary = core.parse_glossary(opts.get("glossary"))
-        hotwords = ", ".join(t for t, _ in glossary[:60]) or None
-        prompt = (opts.get("prompt") or "").strip()
-        if not prompt and hotwords:
-            prompt = f"The speaker mentions these words: {hotwords}."
-
         cues, info = core.transcribe(
             video,
             size=opts.get("model", "small"),
@@ -225,8 +216,6 @@ class Worker:
             beam_size=opts.get("beam_size", 5),
             max_chars=opts.get("max_chars", 42),
             on_progress=on_progress,
-            initial_prompt=prompt or None,
-            hotwords=hotwords,
             should_stop=stopped,
         )
         src = (info.language or lang or "en").lower()

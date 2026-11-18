@@ -50,29 +50,6 @@ video ──► Whisper (ASR) ──► MarianMT (translate) ──► cue split
 - **Splitting**: whole sentences are translated *first*, then split to fit two
   lines — translating fragments produces broken Arabic.
 
-## Speech hinting (words Whisper should expect)
-
-Whisper mishears unfamiliar vocabulary: in an English lesson about French it
-wrote `un ibou` instead of `un hibou`, `un yaut` instead of `un yaourt`.
-
-There is one input for that — a **Speech hint**, a sentence describing what the
-lesson talks about:
-
-`French alphabet lesson: bonjour, merci, hibou, xylophone, zèbre`
-
-Its words are passed to the recogniser as hotwords.
-
-Measured on a French-letter clip:
-
-| | result |
-|---|---|
-| no hint | `d une dent e le f une fête … h un ibou` |
-| with hint | `d, une dent, e, le, f, une fête … h, un hibou` |
-
-Because hinting makes Whisper merge segments into 20-second blocks, cues are
-rebuilt from **word-level timestamps** — each cue is capped at ~6 s or a
-sentence end, so the letters stay individually synced.
-
 ## Preview
 
 Click a finished file in the queue (or its **Preview** button) to open a player

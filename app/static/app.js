@@ -193,7 +193,6 @@ function options() {
     rtl_marks: $("#rtl").checked,
     skip_existing: $("#skip").checked,
     burn_in: $("#burn").checked,
-    prompt: $("#prompt").value,
     threads: parseInt($("#threads").value) || 4,
   };
 }

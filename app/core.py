@@ -325,7 +325,6 @@ def cues_from_words(words, *, max_dur: float = 6.0, max_chars: int = 84) -> list
 def transcribe(video: str, *, size: str = "small", language: str | None = None,
                threads: int = 4, models_dir: str = "models",
                beam_size: int = 5, max_chars: int = 42, on_progress=None,
-               initial_prompt: str | None = None, hotwords: str | None = None,
                word_timestamps: bool = True, should_stop=None):
     """Return (cues, info). Cues are sentence-level — display splitting happens
     after translation so the translator always sees complete sentences."""
@@ -337,8 +336,6 @@ def transcribe(video: str, *, size: str = "small", language: str | None = None,
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 400},
         condition_on_previous_text=False,
-        initial_prompt=initial_prompt or None,
-        hotwords=hotwords or None,
         word_timestamps=word_timestamps,
     )
 

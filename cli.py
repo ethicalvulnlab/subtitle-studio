@@ -29,8 +29,6 @@ def process(video: str, args) -> str:
         models_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"),
         beam_size=args.beam,
         on_progress=progress,
-        initial_prompt=args.prompt or None,
-        hotwords=", ".join(t for t, _ in core.parse_glossary(args.glossary_text)[:60]) or None,
     )
     print(f"\r  transcribed {len(cues)} segments (lang={info.language}, "
           f"{time.time() - t0:.0f}s)", flush=True)
@@ -95,7 +93,6 @@ def main():
     ap.add_argument("--skip-existing", action="store_true", default=True)
     ap.add_argument("--glossary", default=None,
                     help="file with one term per line ('term' or 'term = translation')")
-    ap.add_argument("--prompt", default="", help="hint about what the lesson says (names, vocabulary)")
     ap.add_argument("--no-keep-foreign", dest="keep_foreign", action="store_false",
                     help="do not protect French words automatically")
     args = ap.parse_args()
