@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# Start the Arabic subtitle builder UI.
+# Start Subtitle Studio (sets itself up on first run).
 set -e
 cd "$(dirname "$0")"
-if [ ! -d .venv ]; then
-  echo "No .venv found — running setup.sh once..."
-  ./setup.sh
-fi
-. .venv/bin/activate
-export HF_HOME="$PWD/models/hf"
-export HF_HUB_DISABLE_XET=1
-exec uvicorn app.server:app --host 127.0.0.1 --port 8099 "$@"
+exec python3 bootstrap.py "$@"

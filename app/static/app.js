@@ -302,7 +302,11 @@ function renderQueue(data) {
       const pv = el("button", "btn sm ghost", "Preview");
       pv.onclick = (ev) => { ev.stopPropagation(); preview(it); };
       meta.appendChild(pv);
-      const dirOf = (p) => (p || "").split("/").slice(0, -1).join("/");
+      const dirOf = (p) => {
+        const parts = (p || "").split(/[\\/]/);
+        parts.pop();
+        return parts.join("/");
+      };
       if (it.out && dirOf(it.out) !== dirOf(it.path)) {
         const warn = el("span", "badge", "in output/");
         warn.title = "The video folder is read-only, so the subtitle was saved to output/ — copy it next to the video.";
@@ -371,7 +375,7 @@ async function openEditor(path, subPath) {
     EDIT = { path, subPath: r.path, cues: parseSrt(r.text) };
   } catch (e) { toast("No subtitle to edit yet", "err"); return; }
 
-  $("#edTitle").textContent = path.split("/").pop();
+  $("#edTitle").textContent = path.split(/[\\/]/).pop();
   $("#edShift").value = "0";
   EDIT.active = -1;
   EDIT.stopAt = null;

@@ -12,19 +12,56 @@ Runs on CPU. No API keys, no cloud, no account.
 
 ## Install
 
-Requirements: **Python 3.10+** and **ffmpeg** on your PATH.
+Requirements: **Python 3.10+** and **ffmpeg** on your PATH. Everything else is
+installed by the setup script into a local `.venv`.
 
-> Windows: run this inside **WSL2** (Ubuntu) or Git Bash; the scripts are bash.
+### Windows
+
+1. Install **Python 3.10+** from [python.org](https://www.python.org/downloads/)
+   — tick **“Add python.exe to PATH”** during installation.
+2. Install ffmpeg — open PowerShell and run:
+   ```powershell
+   winget install Gyan.FFmpeg
+   ```
+   then close and reopen the terminal so PATH refreshes.
+3. Download the project (Code → Download ZIP, or `git clone`), open the folder
+   and **double-click `run.bat`**.
+
+The first run installs the dependencies (a few minutes), then opens
+`http://127.0.0.1:8099`. To reuse it later, just double-click `run.bat` again.
+
+From a terminal instead:
+
+```bat
+setup.bat        :: one-time install, run it first
+run.bat          :: start the app
+```
+
+> The window stays open on errors so you can read them.
+> Windows may warn about an unknown script the first time — it is a plain
+> `.bat` file you can open in Notepad.
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/ethicalvulnlab/subtitle-studio.git
 cd subtitle-studio
-./setup.sh          # creates .venv and installs everything (once)
-./run.sh            # starts the app on http://127.0.0.1:8099
+./run.sh            # sets itself up on first run
 ```
 
-`./run.sh` runs `setup.sh` automatically if `.venv` is missing, so a fresh
-clone only needs `./run.sh`.
+macOS needs ffmpeg from Homebrew: `brew install ffmpeg`.
+Debian/Ubuntu: `sudo apt install ffmpeg`.
+
+### What the setup does
+
+`bootstrap.py` (used by both `run.sh`/`run.bat` and `setup.sh`/`setup.bat`):
+
+- creates `.venv` next to the code
+- installs `requirements.txt` plus the **CPU build of torch**
+- creates `models/`, `state/`, `output/`, `examples/`
+- checks that `ffmpeg` can be found and explains how to install it if not
+
+Nothing is installed system-wide, and deleting `.venv` undoes everything.
 
 ## Models — where they live
 
@@ -77,10 +114,11 @@ docker run --rm -p 8099:8099 -v "$PWD/data:/data" -v "$PWD/media:/media" subtitl
 3. Pick model / options → **Start batch**
 4. Watch the queue; **Preview** to watch, **Edit subtitle** to fix, **Check** to QC
 
-Headless equivalent:
+Headless equivalent (any platform, no UI):
 
 ```bash
-. .venv/bin/activate
+python bootstrap.py --headless /path/to/folder
+# or, with the venv active:
 python cli.py /path/to/folder --model small --bilingual
 ```
 

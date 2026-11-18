@@ -480,16 +480,28 @@ def copy_beside(body: CopyIn):
 # Folder browser
 # --------------------------------------------------------------------------- #
 
-BROWSE_ROOTS = [os.path.realpath(os.path.expanduser("~")), "/run/media", "/media", "/mnt", BASE_DIR]
+def browse_roots() -> list[str]:
+    """Places the folder picker may browse. Windows gets every real drive."""
+    roots = [os.path.realpath(os.path.expanduser("~")), BASE_DIR]
+    if os.name == "nt":
+        import string
+
+        for letter in string.ascii_uppercase:
+            drive = f"{letter}:\\"
+            if os.path.exists(drive):
+                roots.append(drive)
+    else:
+        roots += ["/run/media", "/media", "/mnt"]
+    return roots
 
 
 def _in_browse_scope(path: str) -> bool:
-    return any(path == r or path.startswith(r + os.sep) for r in BROWSE_ROOTS)
+    return any(path == r or path.startswith(r + os.sep) for r in browse_roots())
 
 
 @app.get("/api/browse")
 def browse(path: str | None = None):
-    base = os.path.realpath(os.path.expanduser(path or BROWSE_ROOTS[0]))
+    base = os.path.realpath(os.path.expanduser(path or browse_roots()[0]))
     if not _in_browse_scope(base):
         raise HTTPException(403, "outside the browsable area")
     if not os.path.isdir(base):
@@ -517,8 +529,8 @@ def browse(path: str | None = None):
     return {
         "path": base,
         "parent": parent if (parent != base and _in_browse_scope(parent)) else None,
-        "home": BROWSE_ROOTS[0],
-        "roots": BROWSE_ROOTS,
+        "home": browse_roots()[0],
+        "roots": browse_roots(),
         "entries": entries,
     }
 
