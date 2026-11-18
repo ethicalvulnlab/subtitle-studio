@@ -244,6 +244,17 @@ def job_action(jid: str, action: str):
     return {"job": j}
 
 
+@app.post("/api/jobs/purge")
+def purge_jobs():
+    """Drop finished/cancelled jobs from the queue. A running job is kept."""
+    with store.lock:
+        before = len(store.data["jobs"])
+        store.data["jobs"] = [j for j in store.data["jobs"] if j["status"] == "running"]
+        removed = before - len(store.data["jobs"])
+    store.save()
+    return {"removed": removed, "kept": len(store.data["jobs"])}
+
+
 @app.delete("/api/jobs/{jid}")
 def delete_job(jid: str):
     with store.lock:

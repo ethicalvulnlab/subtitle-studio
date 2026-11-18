@@ -685,3 +685,16 @@ async function startModelDownload(size) {
 
 $("#model").onchange = refreshModels;
 refreshModels();
+
+/* ---------------------------------------------------------------- purge queue */
+$("#purge").onclick = async () => {
+  if (!confirm("Remove all finished jobs from the queue?\nSubtitles already written are not touched.")) return;
+  try {
+    const r = await api("/api/jobs/purge", { method: "POST" });
+    const msg = r.removed
+      ? `Cleared ${r.removed} job${r.removed === 1 ? "" : "s"}`
+      : "Nothing to clear";
+    toast(msg + (r.kept ? ` · ${r.kept} still running` : ""), "ok");
+    refreshJobs();
+  } catch (e) { toast(e.message, "err"); }
+};
