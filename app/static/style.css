@@ -635,11 +635,4 @@ html[data-theme="light"] .badge { border-color: #d8d0c0; color: var(--faint); }
 
 .card-head #purge { margin-left: 10px; }
 
-/* source-language live text reads left-to-right */
-.subbox.ltr { direction: ltr; text-align: left; }
 
-/* live transcript lines */
-.live-line { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.045); }
-.live-line:last-child { border-bottom: none; }
-.live-line.muted { color: var(--faint); }
-html[data-theme="light"] .live-line { border-bottom-color: rgba(0,0,0,.06); }

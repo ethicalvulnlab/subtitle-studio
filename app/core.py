@@ -325,7 +325,7 @@ def cues_from_words(words, *, max_dur: float = 6.0, max_chars: int = 84) -> list
 def transcribe(video: str, *, size: str = "small", language: str | None = None,
                threads: int = 4, models_dir: str = "models",
                beam_size: int = 5, max_chars: int = 42, on_progress=None,
-               word_timestamps: bool = True, should_stop=None, on_cue=None):
+               word_timestamps: bool = True, should_stop=None):
     """Return (cues, info). Cues are sentence-level — display splitting happens
     after translation so the translator always sees complete sentences."""
     model = get_whisper(size, threads, models_dir)
@@ -349,8 +349,6 @@ def transcribe(video: str, *, size: str = "small", language: str | None = None,
         text = " ".join(seg.text.split())
         if text:
             seg_cues.append(Cue(seg.start, seg.end, text))
-            if on_cue:
-                on_cue(seg_cues[-1])
         if on_progress:
             on_progress(min(seg.end / info.duration, 0.999) if info.duration else 0.0)
 
@@ -486,8 +484,8 @@ def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 48,
     tok, mdl = _load_marian(src, tgt)
     torch.set_num_threads(4)
     out: list[str] = [""] * len(texts)
-    # Sequential batching: lines must come back in order, otherwise the live
-    # view (and any partial preview) fills in scrambled.
+    # Sequential batching keeps the output ordered and makes progress counts
+    # meaningful.
     order = list(range(len(texts)))
     with torch.inference_mode():
         for start in range(0, len(order), batch_size):

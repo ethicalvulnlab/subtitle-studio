@@ -56,15 +56,6 @@ Click a finished file in the queue (or its **Preview** button) to open a player
 over the app. The Arabic line is shown **live, synced to playback** — scrub the
 video and the matching cue follows.
 
-### Live transcript
-
-You do not have to wait for a file to finish. While it runs, the queue row shows
-a **Live** button (and clicking the file name does the same) that opens a view of
-the text as it is produced:
-
-- during recognition the transcript appears in the **source language**, line by line
-- as soon as translation starts, the lines switch to **Arabic**, batch by batch
-
 ## Editing a subtitle
 
 Every finished file gets an **Edit subtitle** button in the queue. The drawer
@@ -173,7 +164,6 @@ If it appears, the model being loaded is not cached yet — connect once.
 | Pick individual videos | ![Select videos](docs/screenshots/select-videos.png) |
 | Preview | ![Preview](docs/screenshots/preview.png) |
 | Model manager | ![Models](docs/screenshots/models.png) |
-| Live transcript | ![Live](docs/screenshots/live.png) |
 
 ## License
 

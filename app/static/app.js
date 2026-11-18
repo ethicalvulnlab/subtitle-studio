@@ -9,9 +9,9 @@ const el = (tag, cls, txt) => {
 let LIB = { root: null, items: [] };
 let SELECTED = new Set();
 let LAST_JOB = null;
+let CURRENT_JOB = null;
 let EDIT = { path: null, subPath: null, cues: [] };
 let PREVIEW = { cues: [] };
-let LIVE = { path: null, timer: null, phase: null, count: 0, seek: false };
 
 /* ---------------------------------------------------------------- helpers */
 const fmtDur = (s) => {
@@ -178,6 +178,23 @@ function updateSelInfo() {
   const sel = LIB.items.filter((i) => SELECTED.has(i.path));
   const dur = sel.reduce((a, i) => a + i.duration, 0);
   $("#selInfo").textContent = sel.length ? `${sel.length} selected · ${(dur / 3600).toFixed(1)} h` : "";
+  updateControls();
+}
+
+/* ---------------------------------------------------------------- controls */
+function updateControls() {
+  const j = CURRENT_JOB;
+  const running = !!j && j.status === "running";
+  const paused = !!j && j.status === "paused";
+  const queued = !!j && j.status === "queued";
+  const busy = running || paused || queued;
+
+  $("#pause").disabled = !running;
+  $("#resume").disabled = !(paused || queued);
+  $("#cancel").disabled = !busy;
+  $("#purge").disabled = !j;
+  $("#start").disabled = SELECTED.size === 0;
+  $("#start").title = SELECTED.size ? "" : "Select at least one video first";
 }
 
 /* ---------------------------------------------------------------- job */
@@ -228,10 +245,13 @@ function renderQueue(data) {
   if (!jobs.length) {
     box.innerHTML = `<div class="empty"><strong>No jobs yet</strong>Select videos and press start.</div>`;
     $("#qsum").textContent = "";
+    CURRENT_JOB = null;
+    updateControls();
     return;
   }
   const j = jobs[0];
   LAST_JOB = j.id;
+  CURRENT_JOB = j;
   const done = j.items.filter((i) => ["done", "skipped"].includes(i.status)).length;
   const err = j.items.filter((i) => i.status === "error").length;
   const totalDur = j.items.reduce((a, i) => a + (i.duration || 0), 0);
@@ -249,7 +269,7 @@ function renderQueue(data) {
     h.appendChild(el("span", "dot " + it.status));
     const nm = el("span", "qname", it.name);
     nm.title = it.path;
-    nm.onclick = () => (it.status === "running" ? openLive(it) : preview(it));
+    nm.onclick = () => preview(it);
     h.appendChild(nm);
     const isDone = it.status === "done" || it.status === "skipped";
     const pct = Math.round((isDone ? 1 : (it.progress || 0)) * 100);
@@ -273,11 +293,6 @@ function renderQueue(data) {
     if (it.lang) meta.appendChild(el("span", null, it.lang));
     if (it.segments) meta.appendChild(el("span", null, `${it.segments} cues`));
     if (it.elapsed) meta.appendChild(el("span", null, `${it.elapsed}s`));
-    if (it.status === "running") {
-      const lv = el("button", "btn sm ghost", "Live");
-      lv.onclick = (ev) => { ev.stopPropagation(); openLive(it); };
-      meta.appendChild(lv);
-    }
     if (it.error) meta.appendChild(el("span", null, it.error));
     else if (it.status === "done" || it.status === "skipped") {
       const pv = el("button", "btn sm ghost", "Preview");
@@ -296,6 +311,7 @@ function renderQueue(data) {
     row.appendChild(meta);
     box.appendChild(row);
   }
+  updateControls();
 }
 
 async function refreshJobs() {
@@ -312,7 +328,6 @@ async function preview(item) {
     v.dataset.src = item.path;
     v.load();
   }
-  $("#subtext").classList.remove("ltr");
   $("#subtext").textContent = "loading…";
   PREVIEW.cues = [];
   try {
@@ -457,75 +472,48 @@ function closeSettings() {
   if (!$("#drawer").classList.contains("on")) $("#scrim").classList.remove("on");
 }
 
-function stopLive() {
-  if (LIVE.timer) clearInterval(LIVE.timer);
-  LIVE.timer = null;
-  LIVE.path = null;
+function closePreview() {
+  const v = $("#player");
+  if (v) v.pause();
+  $("#previewModal").classList.remove("on");
+}
+
+async function saveEditor() {
+  try {
+    await api("/api/subtitle", {
+      method: "PUT",
+      body: JSON.stringify({ path: EDIT.subPath, text: buildSrt(EDIT.cues) }),
+    });
+    toast(`Saved ${EDIT.cues.length} cues`, "ok");
+    const it = LIB.items.find((i) => i.path === EDIT.path);
+    if (it) it.has_ar = true;
+    const v = $("#player");
+    if (v.dataset.src === EDIT.path) preview({ path: EDIT.path, name: $("#edTitle").textContent });
+    renderList();
+  } catch (e) { toast("Save failed: " + e.message, "err"); }
+}
+
+function closeEditor() {
+  const v = $("#edVideo");
+  if (v) { v.pause(); EDIT.stopAt = null; }
+  $("#drawer").classList.remove("on");
+  if (!$("#sdrawer").classList.contains("on")) $("#scrim").classList.remove("on");
+}
+
+function openSettings() {
+  $("#sdrawer").classList.add("on");
+  $("#scrim").classList.add("on");
+}
+
+function closeSettings() {
+  $("#sdrawer").classList.remove("on");
+  if (!$("#drawer").classList.contains("on")) $("#scrim").classList.remove("on");
 }
 
 function closePreview() {
   const v = $("#player");
   if (v) v.pause();
-  stopLive();
   $("#previewModal").classList.remove("on");
-}
-
-/* transcript of the file being processed, refreshed while it runs */
-async function openLive(item) {
-  $("#previewModal").classList.add("on");
-  const v = $("#player");
-  const src = `/api/media?path=${encodeURIComponent(item.path)}`;
-  if (v.dataset.src !== src) {
-    v.src = src;
-    v.dataset.src = src;
-    v.load();
-  }
-  PREVIEW.cues = [];
-  LIVE = { path: item.path, timer: null, phase: null, count: 0, seek: true };
-  $("#pname").textContent = item.name + " · live";
-  $("#subtext").classList.add("ltr");
-  $("#subtext").innerHTML = `<div class="live-line muted">waiting for the first lines…</div>`;
-  await pollLive();
-  LIVE.timer = setInterval(pollLive, 1500);
-}
-
-async function pollLive() {
-  if (!LIVE.path) return;
-  try {
-    const r = await api(`/api/live?path=${encodeURIComponent(LIVE.path)}`);
-    const box = $("#subtext");
-    if (!r.lines || !r.lines.length) return;
-
-    // Start the player where transcription currently is, not at 0:00.
-    if (LIVE.seek) {
-      const v = $("#player");
-      const last = r.lines[r.lines.length - 1];
-      if (last && last.start > 0 && v.readyState >= 1) {
-        v.currentTime = last.start;
-        LIVE.seek = false;
-      }
-    }
-
-    box.classList.toggle("ltr", r.phase !== "translate");
-    // append only what is new: replacing the whole block every poll is what
-    // made the text flicker
-    if (LIVE.phase !== r.phase || r.lines.length < LIVE.count) {
-      box.innerHTML = "";
-      LIVE.phase = r.phase;
-      LIVE.count = 0;
-    }
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-    for (let i = LIVE.count; i < r.lines.length; i++) {
-      box.appendChild(el("div", "live-line", r.lines[i].text));
-    }
-    LIVE.count = r.lines.length;
-    if (atBottom) box.scrollTop = box.scrollHeight;
-
-    const tag = r.phase === "translate"
-      ? `Arabic${r.total ? ` ${r.done}/${r.total}` : ""}`
-      : "source";
-    $("#pname").textContent = `${r.name || ""} · live (${tag})`;
-  } catch (e) { /* keep polling */ }
 }
 
 function closeAll() {
