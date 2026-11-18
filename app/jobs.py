@@ -98,7 +98,8 @@ class Worker:
             ar = data.get("ar") or {}
             if ar:
                 lines = [{"i": i, "text": ar[i]} for i in sorted(ar)]
-                return {"phase": "translate", "name": data["name"], "lines": lines, "lang": "ar"}
+                return {"phase": "translate", "name": data["name"], "lines": lines,
+                        "lang": "ar", "done": len(ar), "total": data.get("total") or len(ar)}
             return {"phase": "asr", "name": data["name"],
                     "lines": [{"i": k, "text": v} for k, v in enumerate(data["src"][-200:])],
                     "lang": data.get("lang") or "?"}
@@ -119,6 +120,17 @@ class Worker:
             if d is not None:
                 for i, t in zip(idxs, texts):
                     d["ar"][i] = t
+
+    def _live_total(self, path: str, total: int):
+        with self._live_lock:
+            d = self._live.get(path)
+            if d is not None:
+                d["total"] = total
+
+    def _on_batch(self, path: str, item, idxs, texts):
+        self._live_ar(path, idxs, texts)
+        with self.store.lock:
+            item["trans_done"] = item.get("trans_done", 0) + len(idxs)
 
     def _live_clear(self, path: str):
         with self._live_lock:
@@ -233,7 +245,7 @@ class Worker:
         def on_progress(frac: float):
             with self.store.lock:
                 item["phase"] = "transcribe"
-                item["progress"] = round(frac * 0.95, 4)
+                item["progress"] = round(frac * 0.45, 4)
                 job["audio_done"] = round(
                     sum((i.get("duration") or 0) * (1.0 if i["status"] in ("done", "skipped") else i.get("progress", 0))
                         for i in job["items"]), 1)
@@ -245,10 +257,19 @@ class Worker:
         def on_translate(frac: float):
             with self.store.lock:
                 item["phase"] = "translate"
-                item["progress"] = round(0.95 + 0.04 * frac, 4)
+                item["progress"] = round(0.45 + 0.54 * frac, 4)
             if int(frac * 100) % 10 == 0:
                 self.store.save()
 
+        with self.store.lock:
+            # a resumed item must not display the progress it had when it was
+            # interrupted, otherwise it looks stuck at 98% from the first second
+            item["progress"] = 0.0
+            item["phase"] = "transcribe"
+            item["error"] = None
+            item.pop("trans_done", None)
+            item.pop("trans_total", None)
+        self.store.save()
         self._live_reset(video, item["name"])
         cues, info = core.transcribe(
             video,
@@ -270,13 +291,17 @@ class Worker:
         final: list[core.Cue] = []
         if opts.get("translate", True) and src != "ar":
             texts = [c.text for c in cues]
+            with self.store.lock:
+                item["trans_total"] = len(texts)
+                item["trans_done"] = 0
+            self._live_total(video, len(texts))
             ar = core.translate(
                 texts, src, "ar",
                 on_progress=on_translate,
                 glossary=core.parse_glossary(opts.get("glossary")),
                 keep_foreign=bool(opts.get("keep_foreign")),
                 should_stop=stopped,
-                on_batch=lambda idxs, texts: self._live_ar(video, idxs, texts),
+                on_batch=lambda idxs, texts_: self._on_batch(video, item, idxs, texts_),
             )
             for c, t in zip(cues, ar):
                 final.extend(core.split_pair(c.start, c.end, t, c.text,

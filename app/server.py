@@ -528,7 +528,7 @@ def events():
                     "jobs": [{k: j.get(k) for k in
                               ("id", "status", "current", "audio_done", "eta", "options")}
                              | {"items": [{k: it.get(k) for k in
-                                           ("path", "name", "status", "progress", "out", "error", "elapsed", "lang", "segments", "phase", "duration")}
+                                           ("path", "name", "status", "progress", "out", "error", "elapsed", "lang", "segments", "phase", "duration", "trans_done", "trans_total")}
                                           for it in j["items"]]}
                              for j in store.data["jobs"][:6]],
                     "ts": time.time(),

@@ -265,7 +265,11 @@ function renderQueue(data) {
     row.appendChild(track);
 
     const meta = el("div", "qmeta");
-    meta.appendChild(el("span", null, it.phase && it.status === "running" ? it.phase : it.status));
+    let phaseLabel = it.phase && it.status === "running" ? it.phase : it.status;
+    if (it.status === "running" && it.phase === "translate" && it.trans_total) {
+      phaseLabel = `translating ${it.trans_done || 0}/${it.trans_total}`;
+    }
+    meta.appendChild(el("span", null, phaseLabel));
     if (it.lang) meta.appendChild(el("span", null, it.lang));
     if (it.segments) meta.appendChild(el("span", null, `${it.segments} cues`));
     if (it.elapsed) meta.appendChild(el("span", null, `${it.elapsed}s`));
@@ -496,7 +500,9 @@ async function pollLive() {
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
     box.textContent = r.lines.map((l) => l.text).join("\n");
     if (atBottom) box.scrollTop = box.scrollHeight;
-    const tag = r.phase === "translate" ? "Arabic" : "source";
+    const tag = r.phase === "translate"
+      ? `Arabic${r.total ? ` ${r.done}/${r.total}` : ""}`
+      : "source";
     $("#pname").textContent = `${r.name || ""} · live (${tag})`;
   } catch (e) { /* keep polling */ }
 }

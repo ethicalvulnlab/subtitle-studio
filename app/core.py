@@ -478,16 +478,17 @@ def _load_marian(src: str, tgt: str):
         return _TRANS[key]
 
 
-def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 32,
-              beams: int = 2, on_progress=None, should_stop=None,
+def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 48,
+              beams: int = 1, on_progress=None, should_stop=None,
               on_batch=None) -> list[str]:
     import torch
 
     tok, mdl = _load_marian(src, tgt)
     torch.set_num_threads(4)
     out: list[str] = [""] * len(texts)
-    # Longest-first batching keeps padding (and therefore compute) down.
-    order = sorted(range(len(texts)), key=lambda i: len(texts[i]), reverse=True)
+    # Sequential batching: lines must come back in order, otherwise the live
+    # view (and any partial preview) fills in scrambled.
+    order = list(range(len(texts)))
     with torch.inference_mode():
         for start in range(0, len(order), batch_size):
             if should_stop and should_stop():
@@ -496,8 +497,11 @@ def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 32,
             chunk = [texts[i] if texts[i].strip() else "." for i in idx]
             enc = tok(chunk, return_tensors="pt", padding=True,
                       truncation=True, max_length=512)
-            gen = mdl.generate(**enc, max_length=512, num_beams=beams,
-                               do_sample=False)
+            # cap the decode length to the input size: asking for 512 tokens on
+            # every line is what made long files crawl
+            src_len = int(enc["input_ids"].shape[1])
+            gen = mdl.generate(**enc, max_length=min(512, max(64, int(src_len * 2.2))),
+                               num_beams=beams, do_sample=False)
             decoded = tok.batch_decode(gen, skip_special_tokens=True)
             for j, i in enumerate(idx):
                 out[i] = decoded[j]
