@@ -444,6 +444,13 @@ MARIAN = {
     ("en", "ar"): "Helsinki-NLP/opus-mt-en-ar",
     ("fr", "en"): "Helsinki-NLP/opus-mt-fr-en",
 }
+NLLB_CODES = {
+    "en": "eng_Latn", "fr": "fra_Latn", "ar": "arb_Arab", "es": "spa_Latn",
+    "de": "deu_Latn", "tr": "tur_Latn", "it": "ita_Latn", "pt": "por_Latn",
+}
+_NLLB: dict = {}
+_nllb_lock = threading.Lock()
+
 LANG_NAMES = {
     "en": "English", "fr": "French", "ar": "Arabic", "es": "Spanish",
     "de": "German", "it": "Italian", "pt": "Portuguese", "tr": "Turkish",
@@ -474,6 +481,58 @@ def _load_marian(src: str, tgt: str):
             mdl.eval()
             _TRANS[key] = (tok, mdl)
         return _TRANS[key]
+
+
+def _load_nllb():
+    """NLLB-200 distilled 600M — slower than Marian, clearly better Arabic."""
+    with _nllb_lock:
+        if "m" not in _NLLB:
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+            name = "facebook/nllb-200-distilled-600M"
+            try:
+                tok = AutoTokenizer.from_pretrained(name, local_files_only=True)
+                mdl = AutoModelForSeq2SeqLM.from_pretrained(name, local_files_only=True)
+            except Exception:
+                try:
+                    tok = AutoTokenizer.from_pretrained(name)
+                    mdl = AutoModelForSeq2SeqLM.from_pretrained(name)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"NLLB model is not downloaded and the network is unavailable "
+                        f"({type(exc).__name__}). It is a 2.4 GB download."
+                    ) from exc
+            mdl.eval()
+            _NLLB["m"] = (tok, mdl)
+        return _NLLB["m"]
+
+
+def _nllb_batch(texts: list[str], src: str, dst: str, batch_size: int = 16,
+                on_progress=None, should_stop=None, on_batch=None) -> list[str]:
+    import torch
+
+    tok, mdl = _load_nllb()
+    torch.set_num_threads(4)
+    tok.src_lang = NLLB_CODES[src]
+    bos = tok.convert_tokens_to_ids(NLLB_CODES[dst])
+    out: list[str] = [""] * len(texts)
+    with torch.inference_mode():
+        for start in range(0, len(texts), batch_size):
+            if should_stop and should_stop():
+                raise Cancelled()
+            idx = list(range(start, min(start + batch_size, len(texts))))
+            enc = tok([texts[i] or "." for i in idx], return_tensors="pt",
+                      padding=True, truncation=True, max_length=512)
+            gen = mdl.generate(**enc, forced_bos_token_id=bos, max_length=512,
+                               num_beams=1)
+            dec = tok.batch_decode(gen, skip_special_tokens=True)
+            for k, i in enumerate(idx):
+                out[i] = dec[k]
+            if on_batch:
+                on_batch(idx, dec)
+            if on_progress:
+                on_progress(min(1.0, (start + len(idx)) / max(1, len(texts))))
+    return out
 
 
 def _mt_batch(texts: list[str], src: str, tgt: str, batch_size: int = 48,
@@ -634,7 +693,7 @@ def restore_text(text: str, mapping: list[tuple[str, str]]) -> str:
 
 def translate(texts: list[str], src: str, dst: str = "ar", log=None,
               on_progress=None, glossary=None, keep_foreign: bool = False,
-              should_stop=None, on_batch=None) -> list[str]:
+              should_stop=None, on_batch=None, engine: str = "marian") -> list[str]:
     """Translate a list of strings, chaining through English when needed.
 
     Terms in `glossary` (and French words when `keep_foreign`) are protected
@@ -651,6 +710,12 @@ def translate(texts: list[str], src: str, dst: str = "ar", log=None,
         protected.append(p)
         mappings.append(m)
 
+    if engine == "nllb" and src in NLLB_CODES and dst in NLLB_CODES:
+        res = _nllb_batch(protected, src, dst, on_progress=on_progress,
+                          should_stop=should_stop, on_batch=on_batch)
+        res = [restore_text(r, m) for r, m in zip(res, mappings)]
+        return _guard(texts, res, log)
+
     if (src, dst) in MARIAN:
         if log:
             log(f"translating {len(texts)} segments {src}->{dst}")
@@ -666,7 +731,10 @@ def translate(texts: list[str], src: str, dst: str = "ar", log=None,
         raise RuntimeError(f"no translation route for {src}->{dst}")
 
     res = [restore_text(r, m) for r, m in zip(res, mappings)]
+    return _guard(texts, res, log)
 
+
+def _guard(texts: list[str], res: list[str], log=None) -> list[str]:
     fixed = 0
     for i, (s, t) in enumerate(zip(texts, res)):
         # cues with no letters at all (numbers, symbols) must not be "translated"
@@ -718,3 +786,89 @@ def burn_in(video: str, srt: str, dest: str, *, font: str = "Arial",
     if log:
         log("burn-in: " + " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+# --------------------------------------------------------------------------- #
+# Subtitle quality control
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class QCIssue:
+    kind: str
+    cue: int
+    detail: str
+    severity: str = "warn"
+
+
+def qc_check(cues: list[Cue], *, max_dur: float = 7.0, max_cps: float = 20.0,
+             max_chars: int = 42, max_lines: int = 2,
+             min_dur: float = 0.8) -> list[QCIssue]:
+    """Report cues a viewer cannot comfortably read."""
+    issues: list[QCIssue] = []
+    prev_end = -1.0
+    for i, c in enumerate(cues, 1):
+        dur = max(0.001, c.end - c.start)
+        text = " ".join(c.text.split())
+        if dur > max_dur + 0.5:
+            issues.append(QCIssue("too_long", i, f"{dur:.1f}s on screen (max {max_dur:.0f}s)"))
+        if dur < min_dur - 0.05:
+            issues.append(QCIssue("too_short", i, f"{dur:.1f}s (min {min_dur:.1f}s)", "info"))
+        if c.start < prev_end - 0.05:
+            issues.append(QCIssue("overlap", i, f"starts {prev_end - c.start:.1f}s before the previous ends"))
+        cps = len(text.replace("\n", " ")) / dur
+        if cps > max_cps + 0.5:
+            issues.append(QCIssue("too_fast", i, f"{cps:.0f} chars/s (max {max_cps:.0f})"))
+        lines = c.text.split("\n") if "\n" in c.text else [text]
+        longest = max(len(l) for l in lines)
+        if len(lines) > max_lines or longest > max_chars:
+            issues.append(QCIssue("too_wide", i, f"{len(lines)} lines, longest {longest} chars"))
+        prev_end = max(prev_end, c.end)
+    return issues
+
+
+def qc_fix(cues: list[Cue], *, max_dur: float = 7.0, max_cps: float = 20.0,
+           max_chars: int = 42, max_lines: int = 2,
+           min_dur: float = 0.8) -> list[Cue]:
+    """Best-effort repair: split long cues, rewrap, unstack overlaps.
+
+    Text is never deleted — only re-timed and re-wrapped.
+    """
+    cues = sorted((Cue(c.start, c.end, " ".join(c.text.split()), c.orig) for c in cues),
+                  key=lambda c: c.start)
+    def split_by_duration(c: Cue, pieces: int) -> list[Cue]:
+        words = c.text.split()
+        pieces = max(1, min(pieces, len(words)))
+        if pieces <= 1:
+            return [c]
+        span = (c.end - c.start) / pieces
+        per = len(words) / pieces
+        out = []
+        for k in range(pieces):
+            a, b = int(round(k * per)), int(round((k + 1) * per))
+            txt = " ".join(words[a:b]).strip()
+            if txt:
+                out.append(Cue(c.start + k * span, c.start + (k + 1) * span, txt, c.orig))
+        return out or [c]
+
+    out: list[Cue] = []
+    for c in cues:
+        dur = c.end - c.start
+        pieces = max(1, int(dur // max_dur) + (1 if dur % max_dur else 0))
+        for piece in split_by_duration(c, pieces):
+            piece.text = _wrap(piece.text, max_chars, max_lines)
+            out.append(piece)
+
+    # keep them ordered and non-overlapping
+    for i, c in enumerate(out):
+        if i and c.start < out[i - 1].end:
+            out[i - 1].end = max(out[i - 1].start + 0.3, c.start - 0.04)
+    # give short cues room to breathe when the gap allows
+    for i, c in enumerate(out):
+        limit = out[i + 1].start - 0.04 if i + 1 < len(out) else c.end + 10
+        if c.end - c.start < min_dur:
+            c.end = min(limit, c.start + min_dur)
+        # reading speed: stretch the cue, never truncate the words
+        need = (len(c.text) / max_cps) if max_cps > 0 else 0
+        if c.end - c.start < need:
+            c.end = min(limit, c.start + need)
+    return out

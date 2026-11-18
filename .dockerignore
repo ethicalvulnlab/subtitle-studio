@@ -1,0 +1,8 @@
+.venv/
+models/
+state/
+output/
+examples/*.mp4
+docs/screenshots/
+.git/
+__pycache__/

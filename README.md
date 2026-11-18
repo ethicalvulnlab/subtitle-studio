@@ -56,6 +56,37 @@ Click a finished file in the queue (or its **Preview** button) to open a player
 over the app. The Arabic line is shown **live, synced to playback** — scrub the
 video and the matching cue follows.
 
+## Quality check
+
+Every finished file has a **Check** button. It reports cues that are too long,
+too fast to read, overlapping or too wide, and **Fix all** repairs them in place
+(splitting long cues, re-timing overlaps, re-wrapping lines) without changing a
+single word.
+
+## Copying subtitles next to the videos
+
+If the video folder is read-only, subtitles are written to `output/` and the
+queue marks them **in output/**. The **Copy to videos** button copies those
+files back beside their videos and reports anything it could not write.
+
+## Watch folder
+
+Options → **Automation**: point it at a folder and every new video dropped there
+is subtitled automatically with the current settings.
+
+## Translation engine
+
+| Engine | Speed | Size | Quality |
+|---|---|---|---|
+| **Marian** (default) | fast | ~300 MB | good for simple dialogue |
+| **NLLB-200 600M** | ~3× slower | 2.4 GB | noticeably better Arabic |
+
+## Resuming an interrupted file
+
+Recognition and translation are checkpointed to `state/parts/`. If a job is
+cancelled or the app is closed mid-file, restarting the job continues from the
+first untranslated line instead of starting over.
+
 ## Editing a subtitle
 
 Every finished file gets an **Edit subtitle** button in the queue. The drawer
@@ -147,6 +178,22 @@ If it appears, the model being loaded is not cached yet — connect once.
 
 **Nothing runs after a restart** — the queue resumes automatically at startup.
 
+## Run with Docker
+
+```bash
+docker build -t subtitle-studio .
+docker run --rm -p 8099:8099 -v "$PWD/data:/data" -v "$PWD/media:/media" subtitle-studio
+```
+
+Models are cached in the volume, so they download only once.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
 ## Limitations
 
 - CPU-only here, so `small` is the quality ceiling. A GPU would allow
@@ -164,6 +211,8 @@ If it appears, the model being loaded is not cached yet — connect once.
 | Pick individual videos | ![Select videos](docs/screenshots/select-videos.png) |
 | Preview | ![Preview](docs/screenshots/preview.png) |
 | Model manager | ![Models](docs/screenshots/models.png) |
+| Options (engine, watch folder) | ![Options](docs/screenshots/options.png) |
+| Subtitle check | ![QC](docs/screenshots/qc.png) |
 
 ## License
 

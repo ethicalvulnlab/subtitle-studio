@@ -203,6 +203,7 @@ function options() {
     model: $("#model").value,
     source_lang: $("#srclang").value,
     translate: $("#translate").checked,
+    engine: $("#engine").value,
     bilingual: $("#bilingual").checked,
     format: $("#format").value,
     naming: $("#naming").value,
@@ -295,6 +296,9 @@ function renderQueue(data) {
     if (it.elapsed) meta.appendChild(el("span", null, `${it.elapsed}s`));
     if (it.error) meta.appendChild(el("span", null, it.error));
     else if (it.status === "done" || it.status === "skipped") {
+      const qc = el("button", "btn sm ghost", "Check");
+      qc.onclick = (ev) => { ev.stopPropagation(); openQC(it); };
+      meta.appendChild(qc);
       const pv = el("button", "btn sm ghost", "Preview");
       pv.onclick = (ev) => { ev.stopPropagation(); preview(it); };
       meta.appendChild(pv);
@@ -395,7 +399,16 @@ function renderCues() {
     en.onchange = () => { const v = parseSrtTime(en.value); if (v != null) c.end = v; else en.value = toSrt(c.end); };
     const play = el("button", "play", "▶ play");
     play.onclick = (ev) => { ev.stopPropagation(); playCue(i); };
-    times.append(st, el("span", null, "→"), en, play);
+    const split = el("button", "play", "✂ split");
+    split.title = "Split at the cursor (Ctrl+Enter)";
+    split.onclick = (ev) => { ev.stopPropagation(); splitCue(i); };
+    const merge = el("button", "play", "⇄ merge");
+    merge.title = "Merge with the next cue";
+    merge.onclick = (ev) => { ev.stopPropagation(); mergeCue(i); };
+    const del = el("button", "play", "🗑");
+    del.title = "Delete this cue";
+    del.onclick = (ev) => { ev.stopPropagation(); deleteCue(i); };
+    times.append(st, el("span", null, "→"), en, play, split, merge, del);
     right.appendChild(times);
 
     const ta = el("textarea", "ar");
@@ -427,6 +440,43 @@ function playCue(i) {
   $("#edNow").textContent = `cue ${i + 1} · ${toSrt(c.start)} → ${toSrt(c.end)} — listening…`;
   const ta = document.querySelectorAll(".cue textarea")[i];
   if (ta) ta.focus({ preventScroll: true });
+}
+
+function splitCue(i) {
+  const c = EDIT.cues[i];
+  if (!c) return;
+  const ta = document.querySelectorAll(".cue textarea")[i];
+  const pos = ta && ta.selectionStart > 0 ? ta.selectionStart : Math.floor(c.text.length / 2);
+  const before = c.text.slice(0, pos).trim();
+  const after = c.text.slice(pos).trim();
+  if (!before || !after) {
+    toast("Put the cursor inside the line first", "err");
+    return;
+  }
+  const span = c.end - c.start;
+  const at = c.start + span * (before.length / (before.length + after.length));
+  EDIT.cues.splice(i + 1, 0, { start: at, end: c.end, text: after, orig: "" });
+  c.text = before;
+  c.end = at;
+  renderCues();
+  toast("Cue split", "ok");
+}
+
+function mergeCue(i) {
+  const c = EDIT.cues[i], n = EDIT.cues[i + 1];
+  if (!c || !n) { toast("Nothing to merge into", "err"); return; }
+  c.text = (c.text + " " + n.text).trim();
+  c.end = n.end;
+  EDIT.cues.splice(i + 1, 1);
+  renderCues();
+  toast("Cues merged", "ok");
+}
+
+function deleteCue(i) {
+  if (!EDIT.cues[i]) return;
+  EDIT.cues.splice(i, 1);
+  renderCues();
+  toast("Cue deleted", "ok");
 }
 
 function applyShift() {
@@ -571,6 +621,27 @@ $("#edVideo").addEventListener("timeupdate", () => {
   }
 });
 document.addEventListener("keydown", (e) => {
+  const inField = ["TEXTAREA", "INPUT", "SELECT"].includes(document.activeElement?.tagName);
+  const drawerOpen = $("#drawer").classList.contains("on");
+
+  if (drawerOpen && !inField && e.code === "Space") {
+    e.preventDefault();
+    const v = $("#edVideo");
+    v.paused ? v.play() : v.pause();
+    return;
+  }
+  if (drawerOpen && !inField && (e.key === "j" || e.key === "k")) {
+    e.preventDefault();
+    const step = e.key === "k" ? 1 : -1;
+    const next = Math.min(EDIT.cues.length - 1, Math.max(0, (EDIT.active < 0 ? 0 : EDIT.active) + step));
+    playCue(next);
+    return;
+  }
+  if (drawerOpen && (e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    splitCue(EDIT.active >= 0 ? EDIT.active : 0);
+    return;
+  }
   if (e.key === "Escape") closeAll();
   if ((e.ctrlKey || e.metaKey) && e.key === "s" && $("#drawer").classList.contains("on")) {
     e.preventDefault(); saveEditor();
@@ -580,7 +651,17 @@ document.addEventListener("keydown", (e) => {
 const deepEdit = new URLSearchParams(location.search).get("edit");
 if (deepEdit) setTimeout(() => openEditor(deepEdit), 400);
 
+async function loadSettings() {
+  try {
+    const r = await api("/api/settings");
+    const w = (r.settings && r.settings.watch) || {};
+    $("#watch").checked = !!w.enabled;
+    $("#watchPath").value = w.path || "";
+  } catch (e) {}
+}
+
 loadHealth();
+loadSettings();
 refreshJobs();
 connectEvents();
 scan();
@@ -761,4 +842,92 @@ $("#purge").onclick = async () => {
     toast(msg + (r.kept ? ` · ${r.kept} still running` : ""), "ok");
     refreshJobs();
   } catch (e) { toast(e.message, "err"); }
+};
+
+
+/* ---------------------------------------------------------------- QC */
+let QC_FILE = null;
+
+async function openQC(item) {
+  QC_FILE = { video: item.path, out: item.out };
+  $("#qcModal").classList.add("on");
+  $("#qcSummary").textContent = "checking…";
+  $("#qcList").innerHTML = "";
+  try {
+    const q = new URLSearchParams({ path: item.path });
+    if (item.out) q.set("sub", item.out);
+    const r = await api(`/api/qc?${q}`);
+    QC_FILE.sub = r.path;
+    renderQC(r);
+  } catch (e) {
+    $("#qcSummary").textContent = e.message;
+  }
+}
+
+function renderQC(r) {
+  const list = $("#qcList");
+  list.innerHTML = "";
+  $("#qcSummary").textContent =
+    `${r.cues} cues · ${r.issues.length} issue${r.issues.length === 1 ? "" : "s"}`;
+  if (!r.issues.length) {
+    list.innerHTML = `<div class="empty"><strong>All good</strong>Every cue is readable and within limits.</div>`;
+    $("#qcFix").classList.add("hidden");
+    return;
+  }
+  $("#qcFix").classList.remove("hidden");
+  for (const i of r.issues) {
+    const row = el("div", "qc-row" + (i.severity === "info" ? " info" : ""));
+    row.appendChild(el("span", "qc-kind", i.kind.replace("_", " ")));
+    row.appendChild(el("span", "qc-idx", "#" + i.cue));
+    row.appendChild(el("span", "qc-detail", i.detail));
+    list.appendChild(row);
+  }
+}
+
+$("#qcClose").onclick = () => $("#qcModal").classList.remove("on");
+$("#qcModal").onclick = (ev) => { if (ev.target.id === "qcModal") $("#qcModal").classList.remove("on"); };
+$("#qcFix").onclick = async () => {
+  if (!QC_FILE?.sub) return;
+  try {
+    const r = await api("/api/qc/fix", {
+      method: "POST",
+      body: JSON.stringify({ path: QC_FILE.sub, text: "" }),
+    });
+    toast(`Fixed ${r.fixed} issue${r.fixed === 1 ? "" : "s"} · ${r.remaining} left`, "ok");
+    const q = new URLSearchParams({ path: QC_FILE.video });
+    q.set("sub", r.path);
+    renderQC(await api(`/api/qc?${q}`));
+  } catch (e) { toast(e.message, "err"); }
+};
+
+/* ---------------------------------------------------------------- copy beside */
+$("#copybeside").onclick = async () => {
+  try {
+    const r = await api("/api/copy_beside", {
+      method: "POST",
+      body: JSON.stringify({ job_id: LAST_JOB, paths: [] }),
+    });
+    if (r.failed.length) {
+      toast(`${r.copied} copied · ${r.failed.length} failed (folder read-only?)`, "err");
+    } else {
+      toast(`${r.copied} copied next to the videos${r.skipped ? ` · ${r.skipped} already there` : ""}`, "ok");
+    }
+  } catch (e) { toast(e.message, "err"); }
+};
+
+/* ---------------------------------------------------------------- watch folder */
+function saveWatch() {
+  api("/api/settings", {
+    method: "POST",
+    body: JSON.stringify({ settings: { watch: { enabled: $("#watch").checked, path: $("#watchPath").value.trim() } } }),
+  }).catch(() => {});
+}
+$("#watch").onchange = saveWatch;
+$("#watchPath").onchange = saveWatch;
+
+/* engine hint */
+$("#engine").onchange = () => {
+  $("#engineHint").textContent = $("#engine").value === "nllb"
+    ? "Downloads 2.4 GB on first use. Expect roughly 3× the time of Marian."
+    : "";
 };

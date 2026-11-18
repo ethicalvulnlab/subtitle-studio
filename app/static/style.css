@@ -636,3 +636,19 @@ html[data-theme="light"] .badge { border-color: #d8d0c0; color: var(--faint); }
 .card-head #purge { margin-left: 10px; }
 
 
+
+/* ---------------------------------------------------------------- QC modal */
+.qc-card { width: min(720px, 100%); }
+.qc-summary { padding: 12px 18px; font-size: 12px; color: var(--muted);
+              border-bottom: 1px solid var(--line-soft); }
+.qc-list { overflow: auto; max-height: 55vh; padding: 6px 0; }
+.qc-row {
+  display: grid; grid-template-columns: 110px 46px 1fr; gap: 10px;
+  padding: 8px 18px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.04);
+  align-items: baseline;
+}
+.qc-row.info { opacity: .65; }
+.qc-kind { color: var(--amber); text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.qc-idx { color: var(--faint); font-variant-numeric: tabular-nums; }
+.qc-detail { color: var(--muted); }
+html[data-theme="light"] .qc-row { border-bottom-color: rgba(0,0,0,.05); }

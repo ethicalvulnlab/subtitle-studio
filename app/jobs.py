@@ -1,6 +1,7 @@
 """Job queue: one worker thread, resumable, persisted to disk."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -77,11 +78,44 @@ class Worker:
         self.store = store
         self.base_dir = base_dir
         self.thread: threading.Thread | None = None
+        self.parts_dir = os.path.join(base_dir, "state", "parts")
         self.pause = threading.Event()
         self.cancel = threading.Event()
         self._current: str | None = None
         self._started = 0.0
         self._audio_done = 0.0
+
+    # -- per-file checkpoints ---------------------------------------------- #
+    def _part_file(self, video: str, opts: dict) -> str:
+        try:
+            mtime = os.path.getmtime(video)
+        except OSError:
+            mtime = 0
+        raw = f"{os.path.realpath(video)}|{mtime}|{opts.get('model')}|{opts.get('source_lang')}"
+        return os.path.join(self.parts_dir, hashlib.sha1(raw.encode()).hexdigest()[:16] + ".json")
+
+    def _load_part(self, path: str) -> dict | None:
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _save_part(self, path: str, data: dict) -> None:
+        os.makedirs(self.parts_dir, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, path)
+
+    @staticmethod
+    def _drop_part(path: str) -> None:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
     def _count_batch(self, item, idxs):
         with self.store.lock:
@@ -173,6 +207,7 @@ class Worker:
 
         def stopped() -> bool:
             return self._job_cancelled(job) or self.cancel.is_set()
+
         started = time.time()
         duration = item.get("duration") or core.probe_duration(video)
 
@@ -191,6 +226,9 @@ class Worker:
 
         lang = opts.get("source_lang", "auto")
         lang = None if lang in ("auto", "", None) else lang
+        max_chars = opts.get("max_chars", 42)
+        part_path = self._part_file(video, opts)
+        part = self._load_part(part_path)
 
         def on_progress(frac: float):
             with self.store.lock:
@@ -200,7 +238,6 @@ class Worker:
                     sum((i.get("duration") or 0) * (1.0 if i["status"] in ("done", "skipped") else i.get("progress", 0))
                         for i in job["items"]), 1)
                 job["eta"] = self._eta(job)
-            # persist sparsely to limit i/o
             if int(frac * 100) % 5 == 0:
                 self.store.save()
 
@@ -212,46 +249,81 @@ class Worker:
                 self.store.save()
 
         with self.store.lock:
-            # a resumed item must not display the progress it had when it was
-            # interrupted, otherwise it looks stuck at 98% from the first second
             item["progress"] = 0.0
             item["phase"] = "transcribe"
             item["error"] = None
             item.pop("trans_done", None)
             item.pop("trans_total", None)
         self.store.save()
-        cues, info = core.transcribe(
-            video,
-            size=opts.get("model", "small"),
-            language=lang,
-            threads=opts.get("threads", 4),
-            models_dir=os.path.join(self.base_dir, "models"),
-            beam_size=opts.get("beam_size", 5),
-            max_chars=opts.get("max_chars", 42),
-            on_progress=on_progress,
-            should_stop=stopped,
-        )
-        src = (info.language or lang or "en").lower()
-        max_chars = opts.get("max_chars", 42)
 
-        # Translate whole ASR segments, then split for display. Translating
-        # pre-split fragments is what produces broken Arabic.
+        # ---- recognition (or restore it from a checkpoint) ----------------
+        cues: list[core.Cue] = []
+        src = ""
+        if part and part.get("cues"):
+            cues = [core.Cue(c[0], c[1], c[2]) for c in part["cues"]]
+            src = part.get("detected") or (lang or "en")
+            with self.store.lock:
+                item["progress"] = 0.45
+                item["phase"] = "translate"
+            self.store.save()
+        else:
+            cues, info = core.transcribe(
+                video,
+                size=opts.get("model", "small"),
+                language=lang,
+                threads=opts.get("threads", 4),
+                models_dir=os.path.join(self.base_dir, "models"),
+                beam_size=opts.get("beam_size", 5),
+                max_chars=max_chars,
+                on_progress=on_progress,
+                should_stop=stopped,
+            )
+            src = (info.language or lang or "en").lower()
+            self._save_part(part_path, {
+                "video": video,
+                "model": opts.get("model"),
+                "detected": src,
+                "cues": [[c.start, c.end, c.text] for c in cues],
+                "ar": [],
+                "updated": time.time(),
+            })
+
+        # ---- translation (resumes from the checkpoint) --------------------
         final: list[core.Cue] = []
         if opts.get("translate", True) and src != "ar":
             texts = [c.text for c in cues]
+            data = self._load_part(part_path) or {}
+            ar = data.get("ar") or []
+            if len(ar) != len(texts):
+                ar = [None] * len(texts)
+            missing = [i for i, v in enumerate(ar) if not v]
             with self.store.lock:
                 item["trans_total"] = len(texts)
-                item["trans_done"] = 0
-            ar = core.translate(
-                texts, src, "ar",
-                on_progress=on_translate,
-                glossary=core.parse_glossary(opts.get("glossary")),
-                keep_foreign=bool(opts.get("keep_foreign")),
-                should_stop=stopped,
-                on_batch=lambda idxs, texts_: self._count_batch(item, idxs),
-            )
+                item["trans_done"] = len(texts) - len(missing)
+            self.store.save()
+
+            if missing:
+                def on_batch(idxs, outs):
+                    for k, local in enumerate(idxs):
+                        ar[missing[local]] = outs[k]
+                    self._count_batch(item, idxs)
+                    self._save_part(part_path, {**data, "ar": ar, "updated": time.time()})
+
+                got = core.translate(
+                    [texts[i] for i in missing], src, "ar",
+                    on_progress=on_translate,
+                    glossary=core.parse_glossary(opts.get("glossary")),
+                    keep_foreign=bool(opts.get("keep_foreign")),
+                    should_stop=stopped,
+                    on_batch=on_batch,
+                )
+                for k, i in enumerate(missing):
+                    if not ar[i]:
+                        ar[i] = got[k]
+                self._save_part(part_path, {**data, "ar": ar, "updated": time.time()})
+
             for c, t in zip(cues, ar):
-                final.extend(core.split_pair(c.start, c.end, t, c.text,
+                final.extend(core.split_pair(c.start, c.end, t or c.text, c.text,
                                              max_chars=max_chars))
         else:
             for c in cues:
@@ -260,6 +332,7 @@ class Worker:
         cues = core.merge_tiny(final)
         if stopped():
             raise core.Cancelled()
+
         with self.store.lock:
             item["phase"] = "writing"
             item["progress"] = 0.995
@@ -280,13 +353,13 @@ class Worker:
             core.write_srt(cues, stem + ".srt", bom=opts.get("bom", True),
                            rtl_marks=opts.get("rtl_marks", False),
                            bilingual=opts.get("bilingual", False),
-                           max_chars=opts.get("max_chars", 42))
+                           max_chars=max_chars)
             written.append(stem + ".srt")
         if fmt in ("ass", "both"):
             core.write_ass(cues, stem + ".ass", font=opts.get("font", "Arial"),
                            size=opts.get("font_size", 22) * 2,
                            bilingual=opts.get("bilingual", False),
-                           max_chars=opts.get("max_chars", 42))
+                           max_chars=max_chars)
             written.append(stem + ".ass")
 
         if opts.get("burn_in"):
@@ -296,6 +369,7 @@ class Worker:
                          size=opts.get("font_size", 22))
             written.append(dest)
 
+        self._drop_part(part_path)
         with self.store.lock:
             item["status"] = "done"
             item["progress"] = 1.0

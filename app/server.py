@@ -32,6 +32,36 @@ worker = jobs.Worker(store, BASE_DIR)
 app = FastAPI(title="Arabic Subs Builder")
 
 
+def _watch_loop():
+    """Subtitles new videos dropped into the watched folder."""
+    seen: dict[str, float] = {}
+    while True:
+        time.sleep(15)
+        w = (store.data.get("settings") or {}).get("watch") or {}
+        root = w.get("path")
+        if not w.get("enabled") or not root or not os.path.isdir(root):
+            continue
+        opts = dict(store.data.get("settings") or {})
+        for dirpath, _dirs, files in os.walk(root):
+            for fn in files:
+                if os.path.splitext(fn)[1].lower() not in core.VIDEO_EXTS:
+                    continue
+                path = os.path.join(dirpath, fn)
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                if seen.get(path) == mtime:
+                    continue
+                seen[path] = mtime
+                stem = os.path.splitext(path)[0]
+                if os.path.exists(stem + ".ar.srt") or os.path.exists(stem + ".srt"):
+                    continue
+                job = jobs.new_job(store, [path], opts)
+                if job:
+                    worker.ensure_running()
+
+
 @app.on_event("startup")
 def resume_pending_jobs():
     """After a restart, pick the queue back up instead of waiting for a click."""
@@ -39,6 +69,7 @@ def resume_pending_jobs():
         pending = any(j["status"] in ("queued", "running") for j in store.data["jobs"])
     if pending:
         worker.ensure_running()
+    threading.Thread(target=_watch_loop, daemon=True, name="watch-folder").start()
 
 _library: dict = {"root": None, "items": [], "scanned_at": None}
 
@@ -373,6 +404,76 @@ def download(path: str):
     p = safe_path(path)
     return FileResponse(p, filename=os.path.basename(p))
 
+
+
+
+# --------------------------------------------------------------------------- #
+# Subtitle QC
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/qc")
+def qc_report(path: str, sub: str | None = None):
+    video = safe_path(path)
+    sub_path = _subtitle_for(video, sub)
+    if not sub_path:
+        raise HTTPException(404, "no subtitle for this video")
+    with open(sub_path, encoding="utf-8-sig", errors="replace") as f:
+        cues = parse_srt(f.read())
+    issues = core.qc_check(cues)
+    return {"path": sub_path, "cues": len(cues),
+            "issues": [i.__dict__ for i in issues]}
+
+
+@app.post("/api/qc/fix")
+def qc_fix(body: SubIn):
+    sub_path = safe_path(body.path)
+    with open(sub_path, encoding="utf-8-sig", errors="replace") as f:
+        text = f.read()
+    had_bom = open(sub_path, "rb").read(3) == b"\xef\xbb\xbf"
+    cues = parse_srt(text)
+    before = len(core.qc_check(cues))
+    fixed = core.qc_fix(cues)
+    core.write_srt(fixed, sub_path, bom=had_bom)
+    return {"path": sub_path, "fixed": before,
+            "remaining": len(core.qc_check(fixed)), "cues": len(fixed)}
+
+
+# --------------------------------------------------------------------------- #
+# Move subtitles next to their videos
+# --------------------------------------------------------------------------- #
+
+class CopyIn(BaseModel):
+    job_id: str | None = None
+    paths: list[str] = []
+
+
+@app.post("/api/copy_beside")
+def copy_beside(body: CopyIn):
+    """Copy sidecar files that landed in output/ back next to their videos."""
+    items = []
+    if body.job_id:
+        j = store.job(body.job_id)
+        if j:
+            items = j["items"]
+    for p in body.paths:
+        items.append({"path": p})
+
+    copied, skipped, failed = 0, 0, []
+    for it in items:
+        video = it.get("path") or ""
+        out = it.get("out") or _subtitle_for(video) if video else None
+        if not video or not out or not os.path.exists(out):
+            continue
+        target = os.path.join(os.path.dirname(video), os.path.basename(out))
+        if os.path.abspath(target) == os.path.abspath(out):
+            skipped += 1
+            continue
+        try:
+            shutil.copy2(out, target)
+            copied += 1
+        except OSError as exc:
+            failed.append({"file": os.path.basename(out), "error": str(exc)})
+    return {"copied": copied, "skipped": skipped, "failed": failed}
 
 
 # --------------------------------------------------------------------------- #

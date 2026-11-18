@@ -72,6 +72,7 @@
       <div class="card-head">
         <h2>Queue</h2>
         <span class="sub" id="qsum"></span>
+        <button id="copybeside" class="btn sm ghost" title="Copy subtitles from output/ next to their videos">Copy to videos</button>
         <button id="purge" class="btn sm ghost" title="Remove finished jobs from the list">Clear</button>
       </div>
       <div id="queue" class="scroll">
@@ -150,11 +151,32 @@
 
     <div class="group">
       <h3>Translation</h3>
+      <div class="grid2" style="margin-bottom:12px">
+        <div class="field full">
+          <label>Translation engine</label>
+          <select id="engine">
+            <option value="marian" selected>Marian — fast, ~300 MB</option>
+            <option value="nllb">NLLB-200 600M — better, 2.4 GB, slow on CPU</option>
+          </select>
+          <div class="dl-hint" id="engineHint"></div>
+        </div>
+      </div>
       <div class="toggles">
         <label class="switch"><input type="checkbox" id="translate" checked> Translate to Arabic</label>
         <label class="switch"><input type="checkbox" id="bilingual"> Bilingual — original above Arabic</label>
       </div>
 
+    </div>
+
+    <div class="group">
+      <h3>Automation</h3>
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" id="watch"> Watch a folder and subtitle new videos</label>
+      </div>
+      <div class="field" style="margin-top:12px">
+        <label>Folder to watch</label>
+        <input type="text" id="watchPath" placeholder="/path/to/new/episodes">
+      </div>
     </div>
 
     <div class="group">
@@ -223,6 +245,19 @@
       <button id="bUseFolder" class="btn">Use this folder</button>
       <button id="bAddVideos" class="btn primary">Add selected videos</button>
     </footer>
+  </div>
+</div>
+
+<!-- ------------------------------------------------ subtitle QC -->
+<div class="modal" id="qcModal">
+  <div class="modal-card qc-card">
+    <header>
+      <h2>Subtitle check</h2>
+      <button id="qcFix" class="btn primary">Fix all</button>
+      <button id="qcClose" class="btn ghost">Close</button>
+    </header>
+    <div class="qc-summary" id="qcSummary">—</div>
+    <div class="qc-list" id="qcList"></div>
   </div>
 </div>
 
