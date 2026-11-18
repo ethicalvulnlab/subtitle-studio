@@ -131,6 +131,31 @@ def scan(body: ScanIn):
             "hours": round(sum(i["duration"] for i in items) / 3600, 2), "items": items}
 
 
+class FilesIn(BaseModel):
+    paths: list[str]
+
+
+@app.post("/api/add_files")
+def add_files(body: FilesIn):
+    """Load exactly these videos — no folder scan.
+
+    Used by the picker when the user ticks individual files: scanning the
+    whole folder just to select a handful is slow on large libraries.
+    """
+    if not body.paths:
+        raise HTTPException(400, "no files given")
+    items = []
+    for p in body.paths:
+        real = safe_path(p)
+        if not os.path.isfile(real):
+            continue
+        items.extend(core.scan_videos(real))
+    root = os.path.dirname(items[0]["path"]) if items else None
+    _library.update({"root": root, "items": items, "scanned_at": time.time()})
+    return {"root": root, "count": len(items),
+            "hours": round(sum(i["duration"] for i in items) / 3600, 2), "items": items}
+
+
 @app.get("/api/library")
 def library():
     return _library

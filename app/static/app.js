@@ -607,13 +607,15 @@ async function addSelectedVideos() {
   const picks = [...BROWSER.selected];
   if (!picks.length) return;
   try {
+    // allow the folder, then load only the ticked files — never the whole folder
     await api("/api/add_root", { method: "POST", body: JSON.stringify({ root: BROWSER.path }) });
     $("#path").value = BROWSER.path;
     closeBrowse();
-    await scan();
-    SELECTED = new Set(picks);
+    const r = await api("/api/add_files", { method: "POST", body: JSON.stringify({ paths: picks }) });
+    LIB = { root: r.root, items: r.items };
+    SELECTED = new Set(r.items.map((i) => i.path));
     renderList();
-    toast(`${picks.length} video${picks.length === 1 ? "" : "s"} selected`, "ok");
+    toast(`${r.count} video${r.count === 1 ? "" : "s"} loaded`, "ok");
   } catch (e) { toast(e.message, "err"); }
 }
 
