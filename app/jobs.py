@@ -96,23 +96,31 @@ class Worker:
             if not data:
                 return {"phase": "idle", "lines": []}
             ar = data.get("ar") or {}
+            starts = data.get("starts") or []
             if ar:
-                lines = [{"i": i, "text": ar[i]} for i in sorted(ar)]
+                lines = [{"i": i, "text": ar[i],
+                          "start": starts[i] if i < len(starts) else 0.0}
+                         for i in sorted(ar)]
                 return {"phase": "translate", "name": data["name"], "lines": lines,
                         "lang": "ar", "done": len(ar), "total": data.get("total") or len(ar)}
-            return {"phase": "asr", "name": data["name"],
-                    "lines": [{"i": k, "text": v} for k, v in enumerate(data["src"][-200:])],
+            src = data["src"][-200:]
+            offset = len(data["src"]) - len(src)
+            lines = [{"i": offset + k, "text": v,
+                      "start": starts[offset + k] if offset + k < len(starts) else 0.0}
+                     for k, v in enumerate(src)]
+            return {"phase": "asr", "name": data["name"], "lines": lines,
                     "lang": data.get("lang") or "?"}
 
     def _live_reset(self, path: str, name: str):
         with self._live_lock:
-            self._live[path] = {"name": name, "src": [], "ar": {}, "lang": None}
+            self._live[path] = {"name": name, "src": [], "starts": [], "ar": {}, "lang": None}
 
-    def _live_src(self, path: str, text: str):
+    def _live_src(self, path: str, text: str, start: float = 0.0):
         with self._live_lock:
             d = self._live.get(path)
             if d is not None:
                 d["src"].append(text)
+                d["starts"].append(round(start, 2))
 
     def _live_ar(self, path: str, idxs, texts):
         with self._live_lock:
@@ -281,7 +289,7 @@ class Worker:
             max_chars=opts.get("max_chars", 42),
             on_progress=on_progress,
             should_stop=stopped,
-            on_cue=lambda c: self._live_src(video, c.text),
+            on_cue=lambda c: self._live_src(video, c.text, c.start),
         )
         src = (info.language or lang or "en").lower()
         max_chars = opts.get("max_chars", 42)

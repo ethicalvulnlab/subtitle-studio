@@ -177,21 +177,17 @@ If it appears, the model being loaded is not cached yet — connect once.
 
 ## License
 
-**Free for personal and educational use. Businesses need a paid licence.**
+**MIT** — see [LICENSE](LICENSE). Free for personal, educational and commercial
+use, modification and redistribution, provided the copyright notice is kept.
 
-Subtitle Studio is licensed under the
-[PolyForm Noncommercial License 1.0.0](LICENSE).
+### Third-party components
 
-| Use | Licence |
+| Component | Licence |
 |---|---|
-| Personal projects, hobby, private use | Free |
-| Study, research, experimentation | Free |
-| Schools, universities, non-profit education | Free |
-| Charities, public bodies, government | Free |
-| **Any commercial or business use** | **[Paid licence](COMMERCIAL.md)** |
+| `faster-whisper`, Whisper weights | MIT |
+| `transformers`, `MarianMT` code | Apache-2.0 |
+| `Helsinki-NLP/opus-mt-*` models | CC BY 4.0 |
+| Instrument Serif, Public Sans, Noto Kufi Arabic | SIL Open Font License 1.1 |
 
-Commercial use includes internal use by a company, client work, paid products
-and hosted services. See [COMMERCIAL.md](COMMERCIAL.md) for terms and contact.
-
-> Note: this is a source-available licence, not an OSI open-source licence.
-> GitHub will show it as “Other”.
+Models are downloaded at runtime and are **not** distributed with this
+repository.

@@ -11,7 +11,7 @@ let SELECTED = new Set();
 let LAST_JOB = null;
 let EDIT = { path: null, subPath: null, cues: [] };
 let PREVIEW = { cues: [] };
-let LIVE = { path: null, timer: null };
+let LIVE = { path: null, timer: null, phase: null, count: 0, seek: false };
 
 /* ---------------------------------------------------------------- helpers */
 const fmtDur = (s) => {
@@ -481,25 +481,46 @@ async function openLive(item) {
     v.load();
   }
   PREVIEW.cues = [];
-  LIVE.path = item.path;
+  LIVE = { path: item.path, timer: null, phase: null, count: 0, seek: true };
   $("#pname").textContent = item.name + " · live";
   $("#subtext").classList.add("ltr");
-  $("#subtext").textContent = "waiting for the first lines…";
-  if (LIVE.timer) clearInterval(LIVE.timer);
+  $("#subtext").innerHTML = `<div class="live-line muted">waiting for the first lines…</div>`;
+  await pollLive();
   LIVE.timer = setInterval(pollLive, 1500);
-  pollLive();
 }
 
 async function pollLive() {
   if (!LIVE.path) return;
   try {
     const r = await api(`/api/live?path=${encodeURIComponent(LIVE.path)}`);
-    if (!r.lines || !r.lines.length) return;
     const box = $("#subtext");
+    if (!r.lines || !r.lines.length) return;
+
+    // Start the player where transcription currently is, not at 0:00.
+    if (LIVE.seek) {
+      const v = $("#player");
+      const last = r.lines[r.lines.length - 1];
+      if (last && last.start > 0 && v.readyState >= 1) {
+        v.currentTime = last.start;
+        LIVE.seek = false;
+      }
+    }
+
     box.classList.toggle("ltr", r.phase !== "translate");
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
-    box.textContent = r.lines.map((l) => l.text).join("\n");
+    // append only what is new: replacing the whole block every poll is what
+    // made the text flicker
+    if (LIVE.phase !== r.phase || r.lines.length < LIVE.count) {
+      box.innerHTML = "";
+      LIVE.phase = r.phase;
+      LIVE.count = 0;
+    }
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    for (let i = LIVE.count; i < r.lines.length; i++) {
+      box.appendChild(el("div", "live-line", r.lines[i].text));
+    }
+    LIVE.count = r.lines.length;
     if (atBottom) box.scrollTop = box.scrollHeight;
+
     const tag = r.phase === "translate"
       ? `Arabic${r.total ? ` ${r.done}/${r.total}` : ""}`
       : "source";
